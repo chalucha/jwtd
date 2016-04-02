@@ -46,12 +46,18 @@ string encode(string[string] payload, string key, JWTAlgorithm algo = JWTAlgorit
   full version that accepts JSONValue tree as payload and header fields
 */
 string encode(ref JSONValue payload, string key, JWTAlgorithm algo = JWTAlgorithm.HS256, JSONValue header_fields = null) {
-	if(header_fields.type == JSON_TYPE.NULL)
-		header_fields = (JSONValue[string]).init;
-	header_fields.object["alg"] = cast(string)algo;
-	header_fields.object["typ"] = "JWT";
+	import std.functional : memoize;
 
-	string encodedHeader = urlsafeB64Encode(header_fields.toString());
+	auto getEncodedHeader(JWTAlgorithm algo, JSONValue fields) {
+		if(fields.type == JSON_TYPE.NULL)
+			fields = (JSONValue[string]).init;
+		fields.object["alg"] = cast(string)algo;
+		fields.object["typ"] = "JWT";
+
+		return urlsafeB64Encode(fields.toString());
+	}
+
+	string encodedHeader = memoize!(getEncodedHeader, 64)(algo, header_fields);
 	string encodedPayload = urlsafeB64Encode(payload.toString());
 
 	string signingInput = encodedHeader ~ "." ~ encodedPayload;
@@ -85,9 +91,12 @@ JSONValue decode(string token, string key) {
 		throw new VerifyException("Algorithm is incorrect.");
 	}
 
-	string typ = header["typ"].str();
-	if(typ && typ != "JWT")
-		throw new VerifyException("Type is incorrect.");
+	if (auto typ = ("typ" in header)) {
+		string typ_str = typ.str();
+		if(typ_str && typ_str != "JWT")
+			throw new VerifyException("Type is incorrect.");
+	}
+
 
 	if(!verifySignature(urlsafeB64Decode(tokenParts[2]), tokenParts[0]~"."~tokenParts[1], key, alg))
 		throw new VerifyException("Signature is incorrect.");
@@ -124,9 +133,11 @@ bool verify(string token, string key) {
 		throw new VerifyException("Algorithm is incorrect.");
 	}
 
-	string typ = header["typ"].str();
-	if(typ && typ != "JWT")
-		throw new VerifyException("Type is incorrect.");
+	if (auto typ = ("typ" in header)) {
+		string typ_str = typ.str();
+		if(typ_str && typ_str != "JWT")
+			throw new VerifyException("Type is incorrect.");
+	}
 
 	return verifySignature(urlsafeB64Decode(tokenParts[2]), tokenParts[0]~"."~tokenParts[1], key, alg);
 }
